@@ -68,27 +68,30 @@ contract Ethex is SafeMath {
 
     uint public makeFee; //percentage times (1 ether)
     uint public takeFee; //percentage times (1 ether)
+    uint public lastFreeBlock;
+
     mapping (bytes32 => uint) public sellOrderBalances; //a hash of available order balances holds a number of tokens
     mapping (bytes32 => uint) public buyOrderBalances; //a hash of available order balances. holds a number of eth
 
-    event MakeBuyOrder(bytes32 orderHash, address token, uint tokenAmount, uint weiAmount, address buyer);
+    event MakeBuyOrder(bytes32 orderHash, address indexed token, uint tokenAmount, uint weiAmount, address indexed buyer);
 
-    event MakeSellOrder(bytes32 orderHash, address token, uint tokenAmount, uint weiAmount, address seller);
+    event MakeSellOrder(bytes32 orderHash, address indexed token, uint tokenAmount, uint weiAmount, address indexed seller);
 
     event CancelBuyOrder(bytes32 orderHash, address token, uint tokenAmount, uint weiAmount, address buyer);
 
     event CancelSellOrder(bytes32 orderHash, address token, uint tokenAmount, uint weiAmount, address seller);
 
-    event TakeBuyOrder(bytes32 orderHash, address token, uint tokenAmount, uint weiAmount, uint totalTransactionTokens, address buyer, address seller);
+    event TakeBuyOrder(bytes32 orderHash, address indexed token, uint tokenAmount, uint weiAmount, uint totalTransactionTokens, address indexed buyer, address indexed seller);
 
-    event TakeSellOrder(bytes32 orderHash, address token, uint tokenAmount, uint weiAmount, uint totalTransactionWei, address buyer, address seller);
+    event TakeSellOrder(bytes32 orderHash, address indexed token, uint tokenAmount, uint weiAmount, uint totalTransactionWei, address indexed buyer, address indexed seller);
 
-    function Ethex(address admin_, address feeAccount_, uint makeFee_, uint takeFee_, address etxAddress_) {
+    function Ethex(address admin_, address feeAccount_, uint makeFee_, uint takeFee_, address etxAddress_, uint _lastFreeBlock) {
         admin = admin_;
         feeAccount = feeAccount_;
         makeFee = makeFee_;
         takeFee = takeFee_;
         etxAddress = etxAddress_;
+        lastFreeBlock = _lastFreeBlock;
     }
 
     function() {
@@ -123,10 +126,16 @@ contract Ethex is SafeMath {
             return 0;
         }
 
+        if (block.number <= lastFreeBlock)
+        {
+            return 0;
+        }
+
         return feeFromTotalCost(totalCost, feeAmount);
     }
 
     function feeFromTotalCost(uint totalCost, uint feeAmount) public constant returns (uint) {
+
         uint cost = safeMul(totalCost, (1 ether)) / safeAdd((1 ether), feeAmount);
 
         // Calculate ceil(cost).
@@ -144,10 +153,17 @@ contract Ethex is SafeMath {
             // No fee for vested addr.
             return 0;
         }
+
+        if (block.number <= lastFreeBlock)
+        {
+            return 0;
+        }
+
         return calculateFee(cost, feeAmount);
     }
 
     function calculateFee(uint cost, uint feeAmount) public constant returns (uint) {
+
         uint fee = safeMul(cost, feeAmount) / (1 ether);
         return fee;
     }
@@ -159,11 +175,12 @@ contract Ethex is SafeMath {
 
         bytes32 h = sha256(token, tokenAmount, weiAmount, msg.sender);
 
-        // Check allowance.
-        require(tokenAmount <= ERC20Interface(token).allowance(msg.sender, this));
 
         // Update balance.
         sellOrderBalances[h] = safeAdd(sellOrderBalances[h], tokenAmount);
+
+        // Check allowance.  -- Done after updating balance bc it makes a call to an untrusted contract.
+        require(tokenAmount <= ERC20Interface(token).allowance(msg.sender, this));
 
         // Grab the token.
         if (!ERC20Interface(token).transferFrom(msg.sender, this, tokenAmount)) {
@@ -231,8 +248,6 @@ contract Ethex is SafeMath {
         uint totalTransactionWeiAmount = safeAdd(transactionWeiAmountNoFee, unvestedMakeFee);
         require(buyOrderBalances[h] >= totalTransactionWeiAmount);
 
-        // Did the seller send enough tokens?
-        require(ERC20Interface(token).allowance(msg.sender, this) >= totalTokens);
 
         // Calculate the actual vested fees.
         uint currentTakeFee = calculateFeeForAccount(transactionWeiAmountNoFee, takeFee, msg.sender);
@@ -245,6 +260,10 @@ contract Ethex is SafeMath {
 
         // Update our internal accounting.
         buyOrderBalances[h] = safeSub(buyOrderBalances[h], totalTransactionWeiAmount);
+
+
+        // Did the seller send enough tokens?  -- This check is here bc it calls to an untrusted contract.
+        require(ERC20Interface(token).allowance(msg.sender, this) >= totalTokens);
 
         // Send buyer their tokens and any fee refund.
         if (currentMakeFee < unvestedMakeFee) {// the buyer got a fee discount. Send the refund.
