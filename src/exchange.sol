@@ -252,9 +252,6 @@ contract Ethex is SafeMath {
         // Calculate the actual vested fees.
         uint currentTakeFee = calculateFeeForAccount(transactionWeiAmountNoFee, takeFee, msg.sender);
         uint currentMakeFee = calculateFeeForAccount(transactionWeiAmountNoFee, makeFee, buyer);
-        uint totalFee = safeAdd(currentTakeFee, currentMakeFee);
-
-        uint takerProceedsAfterFee = safeSub(transactionWeiAmountNoFee, currentTakeFee);
 
         // Proceed with transferring balances.
 
@@ -277,14 +274,14 @@ contract Ethex is SafeMath {
         }
 
         // Grab our fee.
-        if (totalFee > 0) {
-            if (!feeAccount.send(totalFee)) {
+        if (safeAdd(currentTakeFee, currentMakeFee) > 0) {
+            if (!feeAccount.send(safeAdd(currentTakeFee, currentMakeFee))) {
                 revert();
             }
         }
 
         // Send seller the proceeds.
-        if (!msg.sender.send(takerProceedsAfterFee)) {
+        if (!msg.sender.send(safeSub(transactionWeiAmountNoFee, currentTakeFee))) {
             revert();
         }
 
