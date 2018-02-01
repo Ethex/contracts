@@ -162,9 +162,15 @@ contract Etx is ERC20Interface {
     // Allow _spender to withdraw from your account, multiple times, up to the _value amount.
     // If this function is called again it overwrites the current allowance with _value.
     function approve(address _spender, uint256 _amount) returns (bool success) {
-        allowed[msg.sender][_spender] = _amount;
-        Approval(msg.sender, _spender, _amount);
-        return true;
+      // To change the approve amount you first have to reduce the addresses`
+      //  allowance to zero by calling `approve(_spender, 0)` if it is not
+      //  already 0 to mitigate the race condition described here:
+      //  https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
+      require((_value == 0) || (allowed[msg.sender][_spender] == 0));
+
+      allowed[msg.sender][_spender] = _amount;
+      Approval(msg.sender, _spender, _amount);
+      return true;
     }
 
     function allowance(address _owner, address _spender) constant returns (uint256 remaining) {
