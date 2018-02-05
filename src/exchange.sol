@@ -1,19 +1,19 @@
-pragma solidity ^0.4.13;
+pragma solidity ^0.4.19;
 
 
 contract SafeMath {
-    function safeMul(uint a, uint b) internal returns (uint) {
+    function safeMul(uint256 a, uint256 b) internal returns (uint256) {
         uint c = a * b;
         assert(a == 0 || c / a == b);
         return c;
     }
 
-    function safeSub(uint a, uint b) internal returns (uint) {
+    function safeSub(uint256 a, uint256 b) internal returns (uint256) {
         assert(b <= a);
         return a - b;
     }
 
-    function safeAdd(uint a, uint b) internal returns (uint) {
+    function safeAdd(uint256 a, uint256 b) internal returns (uint256) {
         uint c = a + b;
         assert(c >= a && c >= b);
         return c;
@@ -29,24 +29,24 @@ contract SafeMath {
 // https://github.com/ethereum/EIPs/issues/20
 contract ERC20Interface {
     // Get the total token supply
-    function totalSupply() constant returns (uint256 totalSupply);
+    function totalSupply() public constant returns (uint256 totalSupply);
 
     // Get the account balance of another account with address _owner
-    function balanceOf(address _owner) constant returns (uint256 balance);
+    function balanceOf(address _owner) public constant returns (uint256 balance);
 
     // Send _value amount of tokens to address _to
-    function transfer(address _to, uint256 _value) returns (bool success);
+    function transfer(address _to, uint256 _value) public returns (bool success);
 
     // Send _value amount of tokens from address _from to address _to
-    function transferFrom(address _from, address _to, uint256 _value) returns (bool success);
+    function transferFrom(address _from, address _to, uint256 _value) public returns (bool success);
 
     // Allow _spender to withdraw from your account, multiple times, up to the _value amount.
     // If this function is called again it overwrites the current allowance with _value.
     // this function is required for some DEX functionality
-    function approve(address _spender, uint256 _value) returns (bool success);
+    function approve(address _spender, uint256 _value) public returns (bool success);
 
     // Returns the amount which _spender is still allowed to withdraw from _owner
-    function allowance(address _owner, address _spender) constant returns (uint256 remaining);
+    function allowance(address _owner, address _spender) public constant returns (uint256 remaining);
 
     // Triggered when tokens are transferred.
     event Transfer(address indexed _from, address indexed _to, uint256 _value);
@@ -57,7 +57,8 @@ contract ERC20Interface {
 
 
 contract Etx is ERC20Interface {
-    function isVested(address _owner) public returns (bool vested);
+    uint256 public expirationBlock;
+    function isActive(address _owner) public returns (bool activated);
 }
 
 
@@ -66,26 +67,26 @@ contract Ethex is SafeMath {
     address public feeAccount; //the account that will receive fees
     address public etxAddress;
 
-    uint public makeFee; //percentage times (1 ether)
-    uint public takeFee; //percentage times (1 ether)
-    uint public lastFreeBlock;
+    uint256 public makeFee; //percentage times (1 ether)
+    uint256 public takeFee; //percentage times (1 ether)
+    uint256 public lastFreeBlock;
 
-    mapping (bytes32 => uint) public sellOrderBalances; //a hash of available order balances holds a number of tokens
-    mapping (bytes32 => uint) public buyOrderBalances; //a hash of available order balances. holds a number of eth
+    mapping (bytes32 => uint256) public sellOrderBalances; //a hash of available order balances holds a number of tokens
+    mapping (bytes32 => uint256) public buyOrderBalances; //a hash of available order balances. holds a number of eth
 
-    event MakeBuyOrder(bytes32 orderHash, address indexed token, uint tokenAmount, uint weiAmount, address indexed buyer);
+    event MakeBuyOrder(bytes32 orderHash, address indexed token, uint256 tokenAmount, uint256 weiAmount, address indexed buyer);
 
-    event MakeSellOrder(bytes32 orderHash, address indexed token, uint tokenAmount, uint weiAmount, address indexed seller);
+    event MakeSellOrder(bytes32 orderHash, address indexed token, uint256 tokenAmount, uint256 weiAmount, address indexed seller);
 
-    event CancelBuyOrder(bytes32 orderHash, address token, uint tokenAmount, uint weiAmount, address buyer);
+    event CancelBuyOrder(bytes32 orderHash, address indexed token, uint256 tokenAmount, uint256 weiAmount, address indexed buyer);
 
-    event CancelSellOrder(bytes32 orderHash, address token, uint tokenAmount, uint weiAmount, address seller);
+    event CancelSellOrder(bytes32 orderHash, address indexed token, uint256 tokenAmount, uint256 weiAmount, address indexed seller);
 
-    event TakeBuyOrder(bytes32 orderHash, address indexed token, uint tokenAmount, uint weiAmount, uint totalTransactionTokens, address indexed buyer, address indexed seller);
+    event TakeBuyOrder(bytes32 orderHash, address indexed token, uint256 tokenAmount, uint256 weiAmount, uint256 totalTransactionTokens, address indexed buyer, address indexed seller);
 
-    event TakeSellOrder(bytes32 orderHash, address indexed token, uint tokenAmount, uint weiAmount, uint totalTransactionWei, address indexed buyer, address indexed seller);
+    event TakeSellOrder(bytes32 orderHash, address indexed token, uint256 tokenAmount, uint256 weiAmount, uint256 totalTransactionWei, address indexed buyer, address indexed seller);
 
-    function Ethex(address admin_, address feeAccount_, uint makeFee_, uint takeFee_, address etxAddress_, uint _lastFreeBlock) {
+    function Ethex(address admin_, address feeAccount_, uint256 makeFee_, uint256 takeFee_, address etxAddress_, uint256 _lastFreeBlock) public {
         admin = admin_;
         feeAccount = feeAccount_;
         makeFee = makeFee_;
@@ -94,35 +95,47 @@ contract Ethex is SafeMath {
         lastFreeBlock = _lastFreeBlock;
     }
 
-    function() {
+    function() public {
         revert();
     }
 
-    function changeAdmin(address admin_) {
+    function changeAdmin(address admin_) public {
         require(msg.sender == admin);
         admin = admin_;
     }
 
-    function changeFeeAccount(address feeAccount_) {
+    function changeETXAddress(address etxAddress_) public {
+        require(msg.sender == admin);
+        require(block.number > Etx(etxAddress).expirationBlock());
+        etxAddress = etxAddress_;
+    }
+
+    function changeLastFreeBlock(uint256 _lastFreeBlock) public {
+        require(msg.sender == admin);
+        require(_lastFreeBlock > block.number + 100); //announce at least 100 blocks ahead
+        lastFreeBlock = _lastFreeBlock;
+    }
+
+    function changeFeeAccount(address feeAccount_) public {
         require(msg.sender == admin);
         feeAccount = feeAccount_;
     }
 
-    function changeMakeFee(uint makeFee_) {
+    function changeMakeFee(uint256 makeFee_) public {
         require(msg.sender == admin);
         require(makeFee_ < makeFee);
         makeFee = makeFee_;
     }
 
-    function changeTakeFee(uint takeFee_) {
+    function changeTakeFee(uint256 takeFee_) public {
         require(msg.sender == admin);
         require(takeFee_ < takeFee);
         takeFee = takeFee_;
     }
 
-    function feeFromTotalCostForAccount(uint totalCost, uint feeAmount, address account) public constant returns (uint) {
-        if (Etx(etxAddress).isVested(account)) {
-            // No fee for vested addr.
+    function feeFromTotalCostForAccount(uint256 totalCost, uint256 feeAmount, address account) public constant returns (uint256) {
+        if (Etx(etxAddress).isActive(account)) {
+            // No fee for active addr.
             return 0;
         }
 
@@ -134,22 +147,22 @@ contract Ethex is SafeMath {
         return feeFromTotalCost(totalCost, feeAmount);
     }
 
-    function feeFromTotalCost(uint totalCost, uint feeAmount) public constant returns (uint) {
+    function feeFromTotalCost(uint256 totalCost, uint256 feeAmount) public constant returns (uint256) {
 
-        uint cost = safeMul(totalCost, (1 ether)) / safeAdd((1 ether), feeAmount);
+        uint256 cost = safeMul(totalCost, (1 ether)) / safeAdd((1 ether), feeAmount);
 
         // Calculate ceil(cost).
-        uint remainder = safeMul(totalCost, (1 ether)) % safeAdd((1 ether), feeAmount);
+        uint256 remainder = safeMul(totalCost, (1 ether)) % safeAdd((1 ether), feeAmount);
         if (remainder != 0) {
             cost = safeAdd(cost, 1);
         }
 
-        uint fee = safeSub(totalCost, cost);
+        uint256 fee = safeSub(totalCost, cost);
         return fee;
     }
 
-    function calculateFeeForAccount(uint cost, uint feeAmount, address account) public constant returns (uint) {
-        if (Etx(etxAddress).isVested(account)) {
+    function calculateFeeForAccount(uint256 cost, uint256 feeAmount, address account) public constant returns (uint256) {
+        if (Etx(etxAddress).isActive(account)) {
             // No fee for vested addr.
             return 0;
         }
@@ -162,14 +175,14 @@ contract Ethex is SafeMath {
         return calculateFee(cost, feeAmount);
     }
 
-    function calculateFee(uint cost, uint feeAmount) public constant returns (uint) {
+    function calculateFee(uint256 cost, uint256 feeAmount) public constant returns (uint256) {
 
-        uint fee = safeMul(cost, feeAmount) / (1 ether);
+        uint256 fee = safeMul(cost, feeAmount) / (1 ether);
         return fee;
     }
 
     // Makes an offer to trade tokenAmount of ERC20 token, token, for weiAmount of wei.
-    function makeSellOrder(address token, uint tokenAmount, uint weiAmount) {
+    function makeSellOrder(address token, uint256 tokenAmount, uint256 weiAmount) public {
         require(tokenAmount != 0);
         require(weiAmount != 0);
 
@@ -192,12 +205,12 @@ contract Ethex is SafeMath {
     }
 
     // Makes an offer to trade msg.value wei for tokenAmount of token (an ERC20 token).
-    function makeBuyOrder(address token, uint tokenAmount) payable {
+    function makeBuyOrder(address token, uint256 tokenAmount) public payable {
         require(tokenAmount != 0);
         require(msg.value != 0);
 
-        uint fee = feeFromTotalCost(msg.value, makeFee);
-        uint valueNoFee = safeSub(msg.value, fee);
+        uint256 fee = feeFromTotalCost(msg.value, makeFee);
+        uint256 valueNoFee = safeSub(msg.value, fee);
         bytes32 h = sha256(token, tokenAmount, valueNoFee, msg.sender);
 
         //put ether in the buyOrderBalances map
@@ -209,9 +222,9 @@ contract Ethex is SafeMath {
 
 
     // Cancels all previous offers by msg.sender to trade tokenAmount of tokens for weiAmount of wei.
-    function cancelAllSellOrders(address token, uint tokenAmount, uint weiAmount) {
+    function cancelAllSellOrders(address token, uint256 tokenAmount, uint256 weiAmount) public {
         bytes32 h = sha256(token, tokenAmount, weiAmount, msg.sender);
-        uint remain = sellOrderBalances[h];
+        uint256 remain = sellOrderBalances[h];
         delete sellOrderBalances[h];
 
         ERC20Interface(token).transfer(msg.sender, remain);
@@ -220,9 +233,9 @@ contract Ethex is SafeMath {
     }
 
     // Cancels any previous offers to trade weiAmount of wei for tokenAmount of tokens. Refunds the wei to sender.
-    function cancelAllBuyOrders(address token, uint tokenAmount, uint weiAmount) {
+    function cancelAllBuyOrders(address token, uint256 tokenAmount, uint256 weiAmount) public {
         bytes32 h = sha256(token, tokenAmount, weiAmount, msg.sender);
-        uint remain = buyOrderBalances[h];
+        uint256 remain = buyOrderBalances[h];
         delete buyOrderBalances[h];
 
         if (!msg.sender.send(remain)) {
@@ -233,7 +246,7 @@ contract Ethex is SafeMath {
     }
 
     // Take some (or all) of the ether (minus fees) in the buyOrderBalances hash in exchange for totalTokens tokens.
-    function takeBuyOrder(address token, uint tokenAmount, uint weiAmount, uint totalTokens, address buyer) {
+    function takeBuyOrder(address token, uint256 tokenAmount, uint256 weiAmount, uint256 totalTokens, address buyer) public {
         require(tokenAmount != 0);
         require(weiAmount != 0);
         require(totalTokens != 0);
@@ -241,17 +254,17 @@ contract Ethex is SafeMath {
         bytes32 h = sha256(token, tokenAmount, weiAmount, buyer);
 
         // How many wei for the amount of tokens being sold?
-        uint transactionWeiAmountNoFee = safeMul(totalTokens, weiAmount) / tokenAmount;
+        uint256 transactionWeiAmountNoFee = safeMul(totalTokens, weiAmount) / tokenAmount;
 
         // Does the buyer (maker) have enough money in the contract?
-        uint unvestedMakeFee = calculateFee(transactionWeiAmountNoFee, makeFee);
-        uint totalTransactionWeiAmount = safeAdd(transactionWeiAmountNoFee, unvestedMakeFee);
+        uint256 unvestedMakeFee = calculateFee(transactionWeiAmountNoFee, makeFee);
+        uint256 totalTransactionWeiAmount = safeAdd(transactionWeiAmountNoFee, unvestedMakeFee);
         require(buyOrderBalances[h] >= totalTransactionWeiAmount);
 
 
         // Calculate the actual vested fees.
-        uint currentTakeFee = calculateFeeForAccount(transactionWeiAmountNoFee, takeFee, msg.sender);
-        uint currentMakeFee = calculateFeeForAccount(transactionWeiAmountNoFee, makeFee, buyer);
+        uint256 currentTakeFee = calculateFeeForAccount(transactionWeiAmountNoFee, takeFee, msg.sender);
+        uint256 currentMakeFee = calculateFeeForAccount(transactionWeiAmountNoFee, makeFee, buyer);
 
         // Proceed with transferring balances.
 
@@ -264,7 +277,7 @@ contract Ethex is SafeMath {
 
         // Send buyer their tokens and any fee refund.
         if (currentMakeFee < unvestedMakeFee) {// the buyer got a fee discount. Send the refund.
-            uint refundAmount = safeSub(unvestedMakeFee, currentMakeFee);
+            uint256 refundAmount = safeSub(unvestedMakeFee, currentMakeFee);
             if (!buyer.send(refundAmount)) {
                 revert();
             }
@@ -289,7 +302,7 @@ contract Ethex is SafeMath {
     }
 
 
-    function takeSellOrder(address token, uint tokenAmount, uint weiAmount, address seller) payable {
+    function takeSellOrder(address token, uint256 tokenAmount, uint256 weiAmount, address seller) public payable {
 
         require(tokenAmount != 0);
         require(weiAmount != 0);
@@ -297,16 +310,16 @@ contract Ethex is SafeMath {
         bytes32 h = sha256(token, tokenAmount, weiAmount, seller);
 
         // Check that the contract has enough token to satisfy this order.
-        uint currentTakeFee = feeFromTotalCostForAccount(msg.value, takeFee, msg.sender);
-        uint transactionWeiAmountNoFee = safeSub(msg.value, currentTakeFee);
-        uint totalTokens = safeMul(transactionWeiAmountNoFee, tokenAmount) / weiAmount;
+        uint256 currentTakeFee = feeFromTotalCostForAccount(msg.value, takeFee, msg.sender);
+        uint256 transactionWeiAmountNoFee = safeSub(msg.value, currentTakeFee);
+        uint256 totalTokens = safeMul(transactionWeiAmountNoFee, tokenAmount) / weiAmount;
         require(sellOrderBalances[h] >= totalTokens);
 
         // Calculate total vested fee.
-        uint currentMakeFee = calculateFeeForAccount(transactionWeiAmountNoFee, makeFee, seller);
-        uint totalFee = safeAdd(currentMakeFee, currentTakeFee);
+        uint256 currentMakeFee = calculateFeeForAccount(transactionWeiAmountNoFee, makeFee, seller);
+        uint256 totalFee = safeAdd(currentMakeFee, currentTakeFee);
 
-        uint makerProceedsAfterFee = safeSub(transactionWeiAmountNoFee, currentMakeFee);
+        uint256 makerProceedsAfterFee = safeSub(transactionWeiAmountNoFee, currentMakeFee);
 
         // Transfer.
 

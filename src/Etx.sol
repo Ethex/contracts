@@ -1,4 +1,4 @@
-pragma solidity ^0.4.13;
+pragma solidity ^0.4.19;
 
 
 // ----------------------------------------------------------------------------------------------
@@ -10,33 +10,16 @@ pragma solidity ^0.4.13;
 // ERC Token Standard #20 Interface
 // https://github.com/ethereum/EIPs/issues/20
 contract ERC20Interface {
-    // Get the total token supply
-    function totalSupply() constant returns (uint256 totalSupply);
+     function totalSupply() public constant returns (uint);
+     function balanceOf(address tokenOwner) public constant returns (uint balance);
+     function allowance(address tokenOwner, address spender) public constant returns (uint remaining);
+     function transfer(address to, uint tokens) public returns (bool success);
+     function approve(address spender, uint tokens) public returns (bool success);
+     function transferFrom(address from, address to, uint tokens) public returns (bool success);
 
-    // Get the account balance of another account with address _owner
-    function balanceOf(address _owner) constant returns (uint256 balance);
-
-    // Send _value amount of tokens to address _to
-    function transfer(address _to, uint256 _value) returns (bool success);
-
-    // Send _value amount of tokens from address _from to address _to
-    function transferFrom(address _from, address _to, uint256 _value) returns (bool success);
-
-    // Allow _spender to withdraw from your account, multiple times, up to the _value amount.
-    // If this function is called again it overwrites the current allowance with _value.
-    // this function is required for some DEX functionality
-    function approve(address _spender, uint256 _value) returns (bool success);
-
-    // Returns the amount which _spender is still allowed to withdraw from _owner
-    function allowance(address _owner, address _spender) constant returns (uint256 remaining);
-
-    // Triggered when tokens are transferred.
-    event Transfer(address indexed _from, address indexed _to, uint256 _value);
-
-    // Triggered whenever approve(address _spender, uint256 _value) is called.
-    event Approval(address indexed _owner, address indexed _spender, uint256 _value);
+     event Transfer(address indexed from, address indexed to, uint tokens);
+     event Approval(address indexed tokenOwner, address indexed spender, uint tokens);
 }
-
 
 contract Etx is ERC20Interface {
     string public constant symbol = "ETX";
@@ -55,8 +38,11 @@ contract Etx is ERC20Interface {
     // Balances for each account
     mapping (address => uint256) balances;
 
-    // Vesting start for each account.
-    mapping (address => uint256) vestingStartBlock;
+    // activate start for each account.
+    mapping (address => uint256) activateStartBlock;
+
+    //block at which this Etx token expires
+    uint256 public expirationBlock;
 
     // Owner of account approves the transfer of an amount to another account
     mapping (address => mapping (address => uint256)) allowed;
@@ -68,40 +54,44 @@ contract Etx is ERC20Interface {
     }
 
     // Constructor
-    function Etx(uint256 _blocksToVest) {
+    function Etx(uint256 _blocksToVest,uint256 _expirationBlock) public {
         blocksToVest = _blocksToVest;
+        expirationBlock = _expirationBlock;
         owner = msg.sender;
         balances[owner] = _totalSupply;
-        vestingStartBlock[owner] = block.number;
+        activateStartBlock[owner] = block.number;
     }
 
-    function totalSupply() constant returns (uint256 totalSupply) {
-        totalSupply = _totalSupply;
+    function totalSupply() public constant returns (uint256 ts) {
+        ts = _totalSupply;
     }
 
     // What is the balance of a particular account?
-    function balanceOf(address _owner) constant returns (uint256 balance) {
+    function balanceOf(address _owner) public constant returns (uint256 balance) {
         return balances[_owner];
     }
 
     //in case the client wants to display how long until they are vested.
-    function vestingStartBlockOf(address _owner) constant returns (uint256 blockNumber) {
+    function activateStartBlockOf(address _owner) public constant returns (uint256 blockNumber) {
         if (balances[_owner] >= (1 ether)) {
-          return vestingStartBlock[_owner];
+          return activateStartBlock[_owner];
         }
         return block.number;
     }
 
-    function isVested(address _owner) constant returns (bool vested) {
+    function isActive(address _owner) public constant returns (bool vested) {
+        if (block.number > expirationBlock) {
+            return false;
+        }
         if (balances[_owner] >= (1 ether) &&
-        vestingStartBlock[_owner] + blocksToVest <= block.number) {
+        activateStartBlock[_owner] + blocksToVest <= block.number) {
             return true;
         }
         return false;
     }
 
     // Transfer the balance from owner's account to another account
-    function transfer(address _to, uint256 _amount) returns (bool success) {
+    function transfer(address _to, uint256 _amount) public returns (bool success) {
         if (balances[msg.sender] >= _amount &&
         _amount > 0 &&
         balances[_to] + _amount > balances[_to]) {
@@ -113,9 +103,9 @@ contract Etx is ERC20Interface {
             balances[msg.sender] -= _amount;
             balances[_to] += _amount;
 
-            // If "_to" crossed the 1 ETX level in this transaction, this is the vesting start block.
+            // If "_to" crossed the 1 ETX level in this transaction, this is the activate start block.
             if (previousBalance < (1 ether) && balances[_to] >= (1 ether)) {
-                vestingStartBlock[_to] = block.number;
+                activateStartBlock[_to] = block.number;
             }
 
             Transfer(msg.sender, _to, _amount);
@@ -132,7 +122,7 @@ contract Etx is ERC20Interface {
     // fees in sub-currencies; the command should fail unless the _from account has
     // deliberately authorized the sender of the message via some mechanism; we propose
     // these standardized APIs for approval:
-    function transferFrom(address _from, address _to, uint256 _amount) returns (bool success) {
+    function transferFrom(address _from, address _to, uint256 _amount) public returns (bool success) {
         if (balances[_from] >= _amount &&
         allowed[_from][msg.sender] >= _amount &&
         _amount > 0 &&
@@ -146,9 +136,9 @@ contract Etx is ERC20Interface {
             allowed[_from][msg.sender] -= _amount;
             balances[_to] += _amount;
 
-            // If "_to" crossed the 1 ETX level in this transaction, this is the vesting start block.
+            // If "_to" crossed the 1 ETX level in this transaction, this is the activate start block.
             if (previousBalance < (1 ether) && balances[_to] >= (1 ether)) {
-                vestingStartBlock[_to] = block.number;
+                activateStartBlock[_to] = block.number;
             }
 
             Transfer(_from, _to, _amount);
@@ -161,19 +151,19 @@ contract Etx is ERC20Interface {
 
     // Allow _spender to withdraw from your account, multiple times, up to the _value amount.
     // If this function is called again it overwrites the current allowance with _value.
-    function approve(address _spender, uint256 _amount) returns (bool success) {
+    function approve(address _spender, uint256 _amount) public returns (bool success) {
       // To change the approve amount you first have to reduce the addresses`
       //  allowance to zero by calling `approve(_spender, 0)` if it is not
       //  already 0 to mitigate the race condition described here:
       //  https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
-      require((_value == 0) || (allowed[msg.sender][_spender] == 0));
+      require((_amount == 0) || (allowed[msg.sender][_spender] == 0));
 
       allowed[msg.sender][_spender] = _amount;
       Approval(msg.sender, _spender, _amount);
       return true;
     }
 
-    function allowance(address _owner, address _spender) constant returns (uint256 remaining) {
+    function allowance(address _owner, address _spender) public constant returns (uint256 remaining) {
         return allowed[_owner][_spender];
     }
 }
